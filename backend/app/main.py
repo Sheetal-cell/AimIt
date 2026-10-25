@@ -75,7 +75,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             if user:
                 db.refresh(user)
         access_token = create_access_token(user.id)
-        return RedirectResponse(f"{FRONTEND_URL}/#oauth_token={quote(access_token)}&oauth_picture={quote(str(profile.get("picture") or ""), safe="")}", status_code=302)
+        picture_url = quote(str(profile.get("picture") or ""), safe="")
+        return RedirectResponse(f"{FRONTEND_URL}/#oauth_token={quote(access_token)}&oauth_picture={picture_url}", status_code=302)
     except HTTPException:
         raise
     except Exception:
