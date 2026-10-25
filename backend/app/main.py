@@ -53,7 +53,7 @@ async def google_login(request: Request):
     pending_before = len(_oauth_state_keys(request))
     response = await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
     pending_after = len(_oauth_state_keys(request))
-    logging.info(
+    logging.warning(
         "Google OAuth login initiated: session_cookie_present=%s pending_google_states_before=%d pending_google_states_after=%d",
         bool(request.cookies.get("session")), pending_before, pending_after
     )
@@ -66,7 +66,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     callback_state = request.query_params.get("state", "")
     expected_state_key = f"_state_google_{callback_state}" if callback_state else ""
     state_keys = _oauth_state_keys(request)
-    logging.info(
+    logging.warning(
         "Google OAuth callback received: session_cookie_present=%s callback_state_present=%s pending_google_states=%d callback_state_matches_session=%s",
         bool(request.cookies.get("session")), bool(callback_state), len(state_keys),
         bool(expected_state_key and expected_state_key in request.session)
