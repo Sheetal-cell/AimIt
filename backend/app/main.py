@@ -4,7 +4,7 @@ import secrets
 import json
 from html import escape
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request as URLRequest, urlopen
 from urllib.error import HTTPError, URLError
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
@@ -150,7 +150,7 @@ def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get
             "<p>— AimIt</p></div>"
         ),
     }
-    request = Request(
+    request = URLRequest(
         mail_api_url,
         data=json.dumps(email_payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "User-Agent": "AimIt/1.0"},
