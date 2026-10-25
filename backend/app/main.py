@@ -41,16 +41,36 @@ if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
         client_kwargs={"scope": "openid email profile"},
     )
 app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173","http://127.0.0.1:5173","https://aim-it-six.vercel.app"],allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
+def _oauth_state_keys(request: Request) -> list[str]:
+    # Authlib stores pending OAuth state under keys like _state_google_<state>.
+    # Never log the actual state, cookie, authorization code, or token.
+    return [key for key in request.session.keys() if key.startswith("_state_google_")]
+
 @app.get("/auth/google/login")
 async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(503, "Google sign-in is not configured yet.")
-    return await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
+    pending_before = len(_oauth_state_keys(request))
+    response = await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
+    pending_after = len(_oauth_state_keys(request))
+    logging.info(
+        "Google OAuth login initiated: session_cookie_present=%s pending_google_states_before=%d pending_google_states_after=%d",
+        bool(request.cookies.get("session")), pending_before, pending_after
+    )
+    return response
 
 @app.get("/auth/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(503, "Google sign-in is not configured yet.")
+    callback_state = request.query_params.get("state", "")
+    expected_state_key = f"_state_google_{callback_state}" if callback_state else ""
+    state_keys = _oauth_state_keys(request)
+    logging.info(
+        "Google OAuth callback received: session_cookie_present=%s callback_state_present=%s pending_google_states=%d callback_state_matches_session=%s",
+        bool(request.cookies.get("session")), bool(callback_state), len(state_keys),
+        bool(expected_state_key and expected_state_key in request.session)
+    )
     try:
         token = await oauth.google.authorize_access_token(request)
         profile = token.get("userinfo")
