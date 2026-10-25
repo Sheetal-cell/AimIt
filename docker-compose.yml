@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: momentum-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: momentum
+      POSTGRES_USER: momentum_user
+      POSTGRES_PASSWORD: change_this_local_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - momentum_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U momentum_user -d momentum"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  momentum_pgdata:
