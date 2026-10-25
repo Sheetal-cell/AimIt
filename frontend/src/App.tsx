@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Activity, CalendarCheck, CalendarDays, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut, Timer, Play, Pause, RotateCcw, Gift, Trophy, Palette, UserRound, LockKeyhole, Sparkles, Repeat } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL;
@@ -50,6 +50,7 @@ export default function App() {
   const [authPassword,setAuthPassword] = useState('')
   const [authName,setAuthName] = useState('')
   const [authBusy,setAuthBusy] = useState(false)
+  const googleSignInStarted = useRef(false)
   const [tab,setTab] = useState('Overview')
   const [exportStart,setExportStart] = useState(weekStartString())
   const [exportEnd,setExportEnd] = useState(todayString())
@@ -217,7 +218,7 @@ export default function App() {
     {authMode==='reset'&&<><label>New password<input type="password" value={resetPassword} onChange={e=>setResetPassword(e.target.value)} required minLength={10} maxLength={128} placeholder="At least 10 characters"/></label><label>Confirm new password<input type="password" value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} required minLength={10} maxLength={128} placeholder="Enter it again"/></label></>}
     {error&&<div className="error-banner">{error}</div>}{resetNotice&&<div className="success-banner">{resetNotice}</div>}
     <button className="primary-button full" disabled={authBusy}>{authBusy?'Please wait…':authMode==='register'?'Create account':authMode==='login'?'Sign in':authMode==='forgot'?'Send reset link':'Update password'}</button>
-    {(authMode==='login'||authMode==='register')&&<><div className="auth-divider"><span>or continue with</span></div><a className="google-button" href={`${API}/auth/google/login`}><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 3.06 13.22l7.98 6.19C12.91 13.72 18.01 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6C44.42 37.97 46.98 31.77 46.98 24.55z"/><path fill="#FBBC05" d="M10.04 28.59A14.4 14.4 0 0 1 9.25 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.58 10.78l7.46-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.18 2.3-5.99 0-11.09-4.22-12.96-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48z"/></svg> Continue with Google</a></>}
+    {(authMode==='login'||authMode==='register')&&<><div className="auth-divider"><span>or continue with</span></div><a className="google-button" href={`${API}/auth/google/login`} onClick={(event)=>{if(googleSignInStarted.current){event.preventDefault();return;}googleSignInStarted.current=true;}}><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 3.06 13.22l7.98 6.19C12.91 13.72 18.01 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6C44.42 37.97 46.98 31.77 46.98 24.55z"/><path fill="#FBBC05" d="M10.04 28.59A14.4 14.4 0 0 1 9.25 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.58 10.78l7.46-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.18 2.3-5.99 0-11.09-4.22-12.96-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48z"/></svg> Continue with Google</a></>}
     {authMode==='login'&&<button type="button" className="auth-text-link" onClick={()=>{setAuthMode('forgot');setError('');setResetNotice('')}}>Forgot password?</button>}
     <div className="auth-switch">{authMode==='register'?'Already have an account?':authMode==='login'?'New to AimIt?':'Remembered your password?'} <button type="button" onClick={()=>{setAuthMode('login');setError('');setResetNotice('')}}>{authMode==='register'?'Sign in':'Back to sign in'}</button></div>
     {authMode==='forgot'&&<button type="button" className="auth-text-link" onClick={()=>{setAuthMode('register');setError('');setResetNotice('')}}>Create a new account instead</button>}
