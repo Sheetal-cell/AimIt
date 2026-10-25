@@ -55,6 +55,14 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         profile = token.get("userinfo")
         if not profile:
             profile = await oauth.google.parse_id_token(request, token)
+        # ID-token claims do not always include the picture field. Fetch Google's
+        # UserInfo profile too, preferring its latest profile data when available.
+        try:
+            userinfo = await oauth.google.userinfo(token=token)
+            if userinfo:
+                profile = {**dict(profile), **dict(userinfo)}
+        except Exception:
+            pass
         email = str(profile.get("email", "")).strip().lower()
         if not email or profile.get("email_verified") is not True:
             raise HTTPException(400, "Google did not provide a verified email address.")
