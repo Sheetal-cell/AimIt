@@ -26,7 +26,7 @@ if os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")=="unsafe-devel
 Base.metadata.create_all(bind=engine)
 app=FastAPI(title="Momentum API",version="0.3.0")
 # Authlib uses a signed session only to protect the OAuth state/CSRF round-trip.
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")), same_site="lax", https_only=os.getenv("APP_ENV", "production") == "production")
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")), session_cookie="aimit_oauth_session", same_site="lax", https_only=os.getenv("APP_ENV", "production") == "production")
 oauth=OAuth()
 GOOGLE_CLIENT_ID=os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET=os.getenv("GOOGLE_CLIENT_SECRET")
