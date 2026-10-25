@@ -46,6 +46,10 @@ def _oauth_state_keys(request: Request) -> list[str]:
     # Never log the actual state, cookie, authorization code, or token.
     return [key for key in request.session.keys() if key.startswith("_state_google_")]
 
+def _session_fingerprint(value: str | None) -> str:
+    # A short one-way fingerprint lets us compare cookies without logging secrets.
+    return hashlib.sha256(value.encode()).hexdigest()[:12] if value else "none"
+
 @app.get("/auth/google/login")
 async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
@@ -53,9 +57,18 @@ async def google_login(request: Request):
     pending_before = len(_oauth_state_keys(request))
     response = await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
     pending_after = len(_oauth_state_keys(request))
+    set_cookie = response.headers.get("set-cookie", "")
+    set_cookie_value = ""
+    for cookie_part in set_cookie.split(";"):
+        if cookie_part.strip().startswith("session="):
+            set_cookie_value = cookie_part.strip().split("=", 1)[1]
+            break
     logging.warning(
-        "Google OAuth login initiated: session_cookie_present=%s pending_google_states_before=%d pending_google_states_after=%d",
-        bool(request.cookies.get("session")), pending_before, pending_after
+        "Google OAuth login initiated: request_session_cookie_present=%s request_session_fingerprint=%s response_session_fingerprint=%s pending_google_states_before=%d pending_google_states_after=%d",
+        bool(request.cookies.get("session")),
+        _session_fingerprint(request.cookies.get("session")),
+        _session_fingerprint(set_cookie_value),
+        pending_before, pending_after
     )
     return response
 
@@ -67,8 +80,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     expected_state_key = f"_state_google_{callback_state}" if callback_state else ""
     state_keys = _oauth_state_keys(request)
     logging.warning(
-        "Google OAuth callback received: session_cookie_present=%s callback_state_present=%s pending_google_states=%d callback_state_matches_session=%s",
-        bool(request.cookies.get("session")), bool(callback_state), len(state_keys),
+        "Google OAuth callback received: session_cookie_present=%s session_fingerprint=%s callback_state_present=%s pending_google_states=%d callback_state_matches_session=%s",
+        bool(request.cookies.get("session")),
+        _session_fingerprint(request.cookies.get("session")),
+        bool(callback_state), len(state_keys),
         bool(expected_state_key and expected_state_key in request.session)
     )
     try:
