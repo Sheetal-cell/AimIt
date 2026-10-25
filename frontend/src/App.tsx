@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, CalendarCheck, CalendarDays, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut, Timer, Play, Pause, RotateCcw, Gift, Trophy, Palette, UserRound, LockKeyhole, Sparkles, Repeat } from 'lucide-react'
+import { Download, Activity, CalendarCheck, CalendarDays, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut, Timer, Play, Pause, RotateCcw, Gift, Trophy, Palette, UserRound, LockKeyhole, Sparkles, Repeat } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL;
 type Goal = { id:number; title:string; description?:string|null; category:string; target_date?:string|null; status:string }
 type Task = { id:number; title:string; notes?:string|null; due_date:string; priority:string; estimated_minutes:number; completed:boolean; completed_at?:string|null; goal_id?:number|null }
 type Milestone = { id:number; title:string; description?:string|null; due_date?:string|null; status:string; goal_id:number }
-type User = { id:number; email:string; display_name:string }
+type User = { id:number; email:string; display_name:string; picture_url?:string }
 type Reward = { id:number; period_type:'daily'|'weekly'; period_start:string; reward_text:string }
 type Dashboard = { date:string; today_total:number; today_completed:number; today_completion_percent:number; active_goals:number; milestones_total:number; milestones_completed:number; overdue_tasks:number }
 
@@ -26,8 +26,10 @@ export default function App() {
   const [token,setToken] = useState(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1))
     const oauthToken = fragment.get('oauth_token')
+    const oauthPicture = fragment.get('oauth_picture')
     if (oauthToken) {
       sessionStorage.setItem('momentum_token', oauthToken)
+      if (oauthPicture) sessionStorage.setItem('momentum_picture', oauthPicture)
       return oauthToken
     }
     return new URLSearchParams(window.location.search).has('reset_token') ? null : sessionStorage.getItem('momentum_token')
@@ -49,6 +51,10 @@ export default function App() {
   const [authName,setAuthName] = useState('')
   const [authBusy,setAuthBusy] = useState(false)
   const [tab,setTab] = useState('Overview')
+  const [exportStart,setExportStart] = useState(weekStartString())
+  const [exportEnd,setExportEnd] = useState(todayString())
+  const [exportBusy,setExportBusy] = useState(false)
+  const [exportNotice,setExportNotice] = useState('')
   const [historyDate,setHistoryDate] = useState(() => { const d = new Date(); d.setDate(d.getDate()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })
   const [goals,setGoals] = useState<Goal[]>([])
   const [tasks,setTasks] = useState<Task[]>([])
@@ -91,7 +97,18 @@ export default function App() {
       sessionStorage.setItem('momentum_token', result.access_token); setToken(result.access_token)
     } catch (e:any) { setError(e.message || 'Could not authenticate') } finally { setAuthBusy(false) }
   }
-  function signOut() { sessionStorage.removeItem('momentum_token'); setToken(null); setUserPlaceholder() }
+  function signOut() { sessionStorage.removeItem('momentum_token'); sessionStorage.removeItem('momentum_picture'); setToken(null); setUserPlaceholder() }
+  async function exportTasks(start:string,end:string) {
+    if (!start || !end || end < start) { setExportNotice('Choose a valid date range.'); return }
+    setExportBusy(true); setExportNotice('')
+    try {
+      const savedToken=sessionStorage.getItem('momentum_token')
+      const response=await fetch(`${API}/reports/tasks.xlsx?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`,{headers:{Authorization:`Bearer ${savedToken}`}})
+      if(!response.ok) throw new Error((await response.text()) || 'Could not export tasks.')
+      const blob=await response.blob(); const url=URL.createObjectURL(blob); const link=document.createElement('a'); link.href=url; link.download=`aimit_tasks_${start}_to_${end}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url)
+      setExportNotice('Your Excel report has been downloaded.')
+    } catch(e:any) { setExportNotice(e.message || 'Could not export tasks.') } finally { setExportBusy(false) }
+  }
   async function deleteAccount() {
     if (!user) return
     if (!window.confirm('Delete your AimIt account and all saved database data? This action cannot be undone.')) return
@@ -114,7 +131,7 @@ export default function App() {
   async function refresh() {
     try {
       const [g,t,m,s,u,r] = await Promise.all([request<Goal[]>('/goals'),request<Task[]>('/tasks'),request<Milestone[]>('/milestones'),request<Dashboard>('/dashboard'),request<User>('/auth/me'),request<Reward[]>('/rewards')])
-      setGoals(g); setTasks(t); setMilestones(m); setStats(s); setUser(u); setRewards(r)
+      setGoals(g); setTasks(t); setMilestones(m); setStats(s); setUser({...u,picture_url:sessionStorage.getItem('momentum_picture') || undefined}); setRewards(r)
       const daily = r.find(item => item.period_type === 'daily' && item.period_start === todayString())
       const weekly = r.find(item => item.period_type === 'weekly' && item.period_start === weekStartString())
       setDailyRewardText(daily?.reward_text || ''); setWeeklyRewardText(weekly?.reward_text || ''); setError('')
@@ -211,7 +228,7 @@ export default function App() {
       <div className="brand"><div className="brand-mark"><Zap size={20} fill="currentColor"/></div><div><strong>AimIt</strong><small>PROGRESS, ON PURPOSE</small></div></div>
       <div className="nav-label">WORKSPACE</div>
       {[['Overview',LayoutDashboard],['Weekly planner',CalendarDays],['Daily targets',ListTodo],['Goals',Target],['Milestones',Flag],['Progress',TrendingUp],['Goal History',CalendarDays],['Profile',UserRound]].map(([name,Icon]:any)=><button key={name} className={`nav-item ${tab===name?'active':''}`} onClick={()=>setTab(name)}><Icon size={18}/><span>{name}</span>{name==='Daily targets'&&<span className="nav-count">{todaysTasks.length}</span>}</button>)}
-      <div className="sidebar-bottom"><div className="focus-card"><div className="focus-icon"><Activity size={17}/></div><strong>Small steps count.</strong><p>Consistency beats intensity. Show up for today's version of you.</p></div><div className="profile"><div className="avatar">{(user?.display_name||user?.email||'U').charAt(0).toUpperCase()}</div><div><strong>{user?.display_name||'Your workspace'}</strong><small>{user?.email||'Personal dashboard'}</small></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={15}/></button><span className="online-dot"/></div></div>
+      <div className="sidebar-bottom"><div className="focus-card"><div className="focus-icon"><Activity size={17}/></div><strong>Small steps count.</strong><p>Consistency beats intensity. Show up for today's version of you.</p></div><div className="profile"><div className="avatar">{user?.picture_url?<img src={user.picture_url} alt="Google profile" referrerPolicy="no-referrer"/>:(user?.display_name||user?.email||'U').charAt(0).toUpperCase()}</div><div><strong>{user?.display_name||'Your workspace'}</strong><small>{user?.email||'Personal dashboard'}</small></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={15}/></button><span className="online-dot"/></div></div>
     </aside>
     <main className="main">
       <header className="topbar"><div><div className="eyebrow">YOUR PERSONAL COMMAND CENTER</div><h1>{tab==='Overview'?`Good progress starts today, ${user?.display_name?.trim().split(/\s+/)[0]||'there'}.`:tab==='Profile'?'Your account, your space.':tab}</h1><p className="date-line">{new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</p></div><button className="primary-button" onClick={()=>openNewTask()}><Plus size={17}/> Add a target</button></header>
@@ -219,8 +236,9 @@ export default function App() {
       <div className="content">
 
         {tab==='Profile'&&<section className="profile-page">
-          <article className="section-card account-card"><div className="profile-heading"><div className="profile-large-avatar">{(user?.display_name||'U').charAt(0).toUpperCase()}</div><div><div className="eyebrow">YOUR AIMIT ACCOUNT</div><h3>{user?.display_name||'Your profile'}</h3><p>{user?.email}</p></div></div><div className="account-details"><div><span>Display name</span><strong>{user?.display_name}</strong></div><div><span>Registered email</span><strong>{user?.email}</strong></div></div></article>
+          <article className="section-card account-card"><div className="profile-heading"><div className="profile-large-avatar">{user?.picture_url?<img src={user.picture_url} alt="Google profile" referrerPolicy="no-referrer"/>:(user?.display_name||'U').charAt(0).toUpperCase()}</div><div><div className="eyebrow">YOUR AIMIT ACCOUNT</div><h3>{user?.display_name||'Your profile'}</h3><p>{user?.email}</p></div></div><div className="account-details"><div><span>Display name</span><strong>{user?.display_name}</strong></div><div><span>Registered email</span><strong>{user?.email}</strong></div></div></article>
           <article className="section-card"><div className="section-head"><div><div className="eyebrow">KEEP YOUR ACCOUNT SECURE</div><h3><LockKeyhole size={18}/> Change password</h3></div></div><p className="tool-description">Use your current password to set a new one. At least 10 characters are required.</p><form className="profile-password-form" onSubmit={changeProfilePassword}><label>Current password<input type="password" value={profileCurrentPassword} onChange={e=>setProfileCurrentPassword(e.target.value)} minLength={1} maxLength={128} required autoComplete="current-password"/></label><label>New password<input type="password" value={profileNewPassword} onChange={e=>setProfileNewPassword(e.target.value)} minLength={10} maxLength={128} required autoComplete="new-password"/></label><label>Confirm new password<input type="password" value={profileConfirmPassword} onChange={e=>setProfileConfirmPassword(e.target.value)} minLength={10} maxLength={128} required autoComplete="new-password"/></label>{profileNotice&&<div className={profileNotice.includes('successfully')?'success-banner':'error-banner'}>{profileNotice}</div>}<button className="primary-button" disabled={profileBusy}><LockKeyhole size={15}/>{profileBusy?'Updating…':'Update password'}</button></form></article>
+          <article className="section-card export-section"><div className="section-head"><div><div className="eyebrow">YOUR PROGRESS, PORTABLE</div><h3><Download size={18}/> Export task history</h3></div><span className="soft-count">Excel workbook</span></div><p className="tool-description">Download your tasks with due dates, completion status, completion timestamps, priority, estimated time, and notes.</p><div className="export-quick-actions"><button type="button" className="cancel-button" disabled={exportBusy} onClick={()=>{const end=todayString();const start=weekStartString();setExportStart(start);setExportEnd(end);void exportTasks(start,end)}}><Download size={15}/> This week</button><button type="button" className="cancel-button" disabled={exportBusy} onClick={()=>{const end=todayString();const start=shiftDateString(end,-6);setExportStart(start);setExportEnd(end);void exportTasks(start,end)}}><Download size={15}/> Last 7 days</button></div><div className="export-date-fields"><label>From date<input type="date" value={exportStart} max={exportEnd||undefined} onChange={e=>setExportStart(e.target.value)}/></label><label>To date<input type="date" value={exportEnd} min={exportStart||undefined} onChange={e=>setExportEnd(e.target.value)}/></label><button type="button" className="primary-button" disabled={exportBusy} onClick={()=>void exportTasks(exportStart,exportEnd)}><Download size={15}/>{exportBusy?'Preparing…':'Download Excel'}</button></div>{exportNotice&&<div className={exportNotice.includes('downloaded')?'success-banner':'error-banner'}>{exportNotice}</div>}</article>
           <article className="section-card theme-section"><div className="section-head"><div><div className="eyebrow">MAKE THIS SPACE YOURS</div><h3><Palette size={18}/> Dashboard themes</h3></div><span className="soft-count">Saved on this device</span></div><p className="tool-description">Choose a calm color palette with gentle motion. No neon, no visual noise—just a workspace that feels like yours.</p><div className="theme-grid">
             {[{id:'linen',name:'Linen',desc:'Warm, quiet, minimal',colors:['#f6f4ef','#d9d1c3','#5f705b']},{id:'ocean',name:'Ocean mist',desc:'Cool blue, soft waves',colors:['#edf4f5','#b6d5dc','#4c7c88']},{id:'lavender',name:'Lavender hour',desc:'Gentle lilac tones',colors:['#f3f0f8','#d3c5e7','#8170a5']},{id:'sage',name:'Sage garden',desc:'Natural greens',colors:['#f0f3ed','#c5d5bb','#64805c']},{id:'terracotta',name:'Terracotta',desc:'Earthy clay and sand',colors:['#f7f0e9','#e4bca5','#a86448']},{id:'rosewater',name:'Rosewater',desc:'Muted rose and cream',colors:['#f8eff0','#e8c3ca','#ad6e7c']},{id:'midnight',name:'Midnight blue',desc:'Deep, calm contrast',colors:['#e9edf4','#aebed8','#526d98']}].map(item=><button type="button" key={item.id} className={`theme-option ${theme===item.id?'selected':''}`} onClick={()=>setTheme(item.id)} aria-pressed={theme===item.id}><span className="theme-swatches">{item.colors.map(color=><i key={color} style={{background:color}}/>)}</span><span className="theme-option-copy"><strong>{item.name}</strong><small>{item.desc}</small></span><span className="theme-selected-mark">{theme===item.id?<Check size={15}/>:null}</span></button>)}
           </div><div className="motion-note"><Sparkles size={16}/><span><strong>Subtle motion is on.</strong> The header illustration and color wash use slow, low-contrast animation. You can turn motion off in your device's reduced-motion accessibility setting.</span></div></article>
