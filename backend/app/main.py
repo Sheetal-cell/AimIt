@@ -105,3 +105,27 @@ def analytics(db:Session=Depends(get_db),user:models.User=Depends(current_user))
         if k in daily: daily[k]["completed" if e.completed else "reopened"]+=1
     tasks=db.scalars(select(models.Task).where(models.Task.user_id==user.id)).all(); done=sum(t.completed for t in tasks)
     return {"last_14_days":list(daily.values()),"all_time_tasks":len(tasks),"currently_completed_tasks":done,"all_time_completion_percent":round(done/len(tasks)*100) if tasks else 0,"overdue_open_tasks":sum(not t.completed and t.due_date<date.today() for t in tasks),"recommendations":["Choose three must-win targets before optional tasks.","Split repeatedly postponed tasks into smaller actions.","Connect daily targets to a goal to see why the work matters."]}
+
+
+@app.get("/rewards", response_model=list[schemas.RewardOut])
+def list_rewards(db: Session = Depends(get_db), user: models.User = Depends(current_user)):
+    return db.scalars(select(models.Reward).where(models.Reward.user_id == user.id).order_by(models.Reward.period_start.desc())).all()
+
+@app.put("/rewards/{period_type}/{period_start}", response_model=schemas.RewardOut)
+def save_reward(period_type: str, period_start: date, payload: schemas.RewardIn, db: Session = Depends(get_db), user: models.User = Depends(current_user)):
+    if period_type not in {"daily", "weekly"}:
+        raise HTTPException(422, "Period type must be daily or weekly")
+    reward_text = payload.reward_text.strip()
+    if not reward_text:
+        raise HTTPException(422, "Reward cannot be empty")
+    if period_type == "weekly" and period_start.weekday() != 0:
+        raise HTTPException(422, "Weekly rewards must use the Monday of that week")
+    reward = db.scalar(select(models.Reward).where(models.Reward.user_id == user.id, models.Reward.period_type == period_type, models.Reward.period_start == period_start))
+    if reward:
+        reward.reward_text = reward_text
+    else:
+        reward = models.Reward(user_id=user.id, period_type=period_type, period_start=period_start, reward_text=reward_text)
+        db.add(reward)
+    db.commit()
+    db.refresh(reward)
+    return reward
