@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from sqlalchemy import String, Text, Integer, Boolean, Date, DateTime, ForeignKey
+from sqlalchemy import String, Text, Integer, Boolean, Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 class User(Base):
@@ -49,3 +49,14 @@ class CompletionEvent(Base):
     task_id: Mapped[int]=mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True, nullable=False)
     completed: Mapped[bool]=mapped_column(Boolean, nullable=False)
     occurred_at: Mapped[datetime]=mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Reward(Base):
+    __tablename__ = "rewards"
+    __table_args__ = (UniqueConstraint("user_id", "period_type", "period_start", name="uq_user_reward_period"),)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    period_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    reward_text: Mapped[str] = mapped_column(String(240), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
