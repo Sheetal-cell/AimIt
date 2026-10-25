@@ -1,9 +1,11 @@
 import os
 import hashlib
 import secrets
-import smtplib
-from email.message import EmailMessage
+import json
+from html import escape
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,38 +39,80 @@ def me(user:models.User=Depends(current_user)): return user
 
 @app.post("/auth/forgot-password")
 def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get_db)):
-    smtp_host = os.getenv("SMTP_HOST")
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user or "")
-    if not all([smtp_host, smtp_user, smtp_password, from_email]):
+    api_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    if not api_key:
         raise HTTPException(503, "Password reset email is not configured yet. Please contact the site administrator.")
+
     email = str(payload.email).lower()
     user = db.scalar(select(models.User).where(models.User.email == email))
     if not user:
         return {"message": "If an account exists for that email, reset instructions will be sent."}
+
     now = datetime.utcnow()
-    db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id, models.PasswordResetToken.used_at.is_(None)).update({"used_at": now})
+    db.query(models.PasswordResetToken).filter(
+        models.PasswordResetToken.user_id == user.id,
+        models.PasswordResetToken.used_at.is_(None),
+    ).update({"used_at": now})
+
     raw_token = secrets.token_urlsafe(40)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    db.add(models.PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=now + timedelta(minutes=30)))
+    db.add(models.PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=now + timedelta(minutes=30),
+    ))
     db.flush()
+
     frontend_url = os.getenv("FRONTEND_URL", "https://aim-it-six.vercel.app").rstrip("/")
     reset_url = f"{frontend_url}/?reset_token={quote(raw_token)}"
-    message = EmailMessage()
-    message["Subject"] = "Reset your AimIt password"
-    message["From"] = from_email
-    message["To"] = email
-    message.set_content(f"Hello {user.display_name},\n\nUse this one-time link to reset your AimIt password. It expires in 30 minutes.\n\n{reset_url}\n\nIf you did not request this, you can ignore this email.")
+    display_name = escape(user.display_name or "there")
+    reset_url_html = escape(reset_url, quote=True)
+    email_payload = {
+        "from": from_email,
+        "to": [email],
+        "subject": "Reset your AimIt password",
+        "text": (
+            f"Hello {user.display_name or 'there'},\n\n"
+            "We received a request to reset your AimIt password. "
+            "Use the one-time link below within 30 minutes:\n\n"
+            f"{reset_url}\n\n"
+            "If you did not request this, you can ignore this email."
+        ),
+        "html": (
+            "<div style=\"font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#24302b;line-height:1.6\">"
+            "<h2 style=\"color:#466b58\">Reset your AimIt password</h2>"
+            f"<p>Hello {display_name},</p>"
+            "<p>We received a request to reset your password. This link expires in 30 minutes.</p>"
+            f"<p><a href=\"{reset_url_html}\" style=\"display:inline-block;padding:12px 20px;background:#466b58;color:#fff;text-decoration:none;border-radius:8px\">Reset password</a></p>"
+            "<p>If the button does not work, copy this link into your browser:</p>"
+            f"<p><a href=\"{reset_url_html}\">{reset_url_html}</a></p>"
+            "<p>If you did not request a password reset, you can safely ignore this email.</p>"
+            "<p>— AimIt</p></div>"
+        ),
+    }
+    request = Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(email_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "AimIt/1.0",
+        },
+        method="POST",
+    )
     try:
-        with smtplib.SMTP(smtp_host, int(os.getenv("SMTP_PORT", "587")), timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(message)
+        with urlopen(request, timeout=15) as response:
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Resend did not accept the email request")
         db.commit()
+    except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError):
+        db.rollback()
+        raise HTTPException(502, "Could not send the reset email. Check the Resend configuration and try again.")
     except Exception:
         db.rollback()
         raise HTTPException(502, "Could not send the reset email. Please try again later.")
+
     return {"message": "If an account exists for that email, reset instructions will be sent."}
 
 @app.post("/auth/reset-password")
