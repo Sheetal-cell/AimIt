@@ -23,7 +23,15 @@ async function request<T>(path:string, options?:RequestInit):Promise<T> {
 }
 
 export default function App() {
-  const [token,setToken] = useState(() => new URLSearchParams(window.location.search).has('reset_token') ? null : sessionStorage.getItem('momentum_token'))
+  const [token,setToken] = useState(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1))
+    const oauthToken = fragment.get('oauth_token')
+    if (oauthToken) {
+      sessionStorage.setItem('momentum_token', oauthToken)
+      return oauthToken
+    }
+    return new URLSearchParams(window.location.search).has('reset_token') ? null : sessionStorage.getItem('momentum_token')
+  })
   const [authMode,setAuthMode] = useState<'register'|'login'|'forgot'|'reset'>(() => new URLSearchParams(window.location.search).has('reset_token') ? 'reset' : 'register')
   const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset_token') || '')
   const [resetPassword,setResetPassword] = useState('')
@@ -52,7 +60,7 @@ export default function App() {
   const [stats,setStats] = useState<Dashboard|null>(null)
   const [user,setUser] = useState<User|null>(null)
   const [editingTask,setEditingTask] = useState<Task|null>(null)
-  const [error,setError] = useState('')
+  const [error,setError] = useState(() => new URLSearchParams(window.location.search).get('oauth_error') === 'google_signin_failed' ? 'Google sign-in could not be completed. Please try again.' : '')
   const [showTask,setShowTask] = useState(false)
   const [showGoal,setShowGoal] = useState(false)
   const [showMilestone,setShowMilestone] = useState(false)
@@ -94,6 +102,11 @@ export default function App() {
       setDailyRewardText(daily?.reward_text || ''); setWeeklyRewardText(weekly?.reward_text || ''); setError('')
     } catch { setError('Could not connect to the API. Start PostgreSQL and the FastAPI backend, then refresh this page.') }
   }
+  useEffect(() => {
+    if (window.location.hash.includes('oauth_token=') || window.location.search.includes('oauth_error=')) {
+      window.history.replaceState({}, document.title, window.location.pathname + (window.location.search.includes('reset_token=') ? window.location.search : ''))
+    }
+  }, [])
   useEffect(() => { if (token) void refresh() }, [token])
   useEffect(() => { localStorage.setItem('aimit_theme', theme) }, [theme])
   useEffect(() => { if (!user) return; const key = `aimit_top3_${user.id}_${todayString()}`; const saved = JSON.parse(localStorage.getItem(key) || '[]') as string[]; setTopThreeDraft([saved[0]||'',saved[1]||'',saved[2]||'']) }, [user])
@@ -169,6 +182,7 @@ export default function App() {
     {authMode==='reset'&&<><label>New password<input type="password" value={resetPassword} onChange={e=>setResetPassword(e.target.value)} required minLength={10} maxLength={128} placeholder="At least 10 characters"/></label><label>Confirm new password<input type="password" value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} required minLength={10} maxLength={128} placeholder="Enter it again"/></label></>}
     {error&&<div className="error-banner">{error}</div>}{resetNotice&&<div className="success-banner">{resetNotice}</div>}
     <button className="primary-button full" disabled={authBusy}>{authBusy?'Please wait…':authMode==='register'?'Create account':authMode==='login'?'Sign in':authMode==='forgot'?'Send reset link':'Update password'}</button>
+    {(authMode==='login'||authMode==='register')&&<><div className="auth-divider"><span>or continue with</span></div><a className="google-button" href={`${API}/auth/google/login`}><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 3.06 13.22l7.98 6.19C12.91 13.72 18.01 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6C44.42 37.97 46.98 31.77 46.98 24.55z"/><path fill="#FBBC05" d="M10.04 28.59A14.4 14.4 0 0 1 9.25 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.58 10.78l7.46-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.18 2.3-5.99 0-11.09-4.22-12.96-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48z"/></svg> Continue with Google</a></>}
     {authMode==='login'&&<button type="button" className="auth-text-link" onClick={()=>{setAuthMode('forgot');setError('');setResetNotice('')}}>Forgot password?</button>}
     <div className="auth-switch">{authMode==='register'?'Already have an account?':authMode==='login'?'New to AimIt?':'Remembered your password?'} <button type="button" onClick={()=>{setAuthMode('login');setError('');setResetNotice('')}}>{authMode==='register'?'Sign in':'Back to sign in'}</button></div>
     {authMode==='forgot'&&<button type="button" className="auth-text-link" onClick={()=>{setAuthMode('register');setError('');setResetNotice('')}}>Create a new account instead</button>}
