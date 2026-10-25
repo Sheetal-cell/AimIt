@@ -1,4 +1,9 @@
 import os
+import hashlib
+import secrets
+import smtplib
+from email.message import EmailMessage
+from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +34,69 @@ def login(payload:schemas.LoginIn,db:Session=Depends(get_db)):
     return {"access_token":create_access_token(user.id),"user":user}
 @app.get("/auth/me",response_model=schemas.UserOut)
 def me(user:models.User=Depends(current_user)): return user
+
+@app.post("/auth/forgot-password")
+def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get_db)):
+    email = str(payload.email).lower()
+    user = db.scalar(select(models.User).where(models.User.email == email))
+    if not user:
+        return {"message": "If an account exists for that email, reset instructions will be sent."}
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user or "")
+    if not all([smtp_host, smtp_user, smtp_password, from_email]):
+        raise HTTPException(503, "Password reset email is not configured yet. Please contact the site administrator.")
+    now = datetime.utcnow()
+    db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id, models.PasswordResetToken.used_at.is_(None)).update({"used_at": now})
+    raw_token = secrets.token_urlsafe(40)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    db.add(models.PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=now + timedelta(minutes=30)))
+    db.commit()
+    frontend_url = os.getenv("FRONTEND_URL", "https://aim-it-six.vercel.app").rstrip("/")
+    reset_url = f"{frontend_url}/?reset_token={quote(raw_token)}"
+    message = EmailMessage()
+    message["Subject"] = "Reset your AimIt password"
+    message["From"] = from_email
+    message["To"] = email
+    message.set_content(f"Hello {user.display_name},\n\nUse this one-time link to reset your AimIt password. It expires in 30 minutes.\n\n{reset_url}\n\nIf you did not request this, you can ignore this email.")
+    try:
+        with smtplib.SMTP(smtp_host, int(os.getenv("SMTP_PORT", "587")), timeout=15) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(message)
+    except Exception:
+        db.rollback()
+        raise HTTPException(502, "Could not send the reset email. Please try again later.")
+    return {"message": "If an account exists for that email, reset instructions will be sent."}
+
+@app.post("/auth/reset-password")
+def reset_password(payload: schemas.ResetPasswordIn, db: Session = Depends(get_db)):
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    reset = db.scalar(select(models.PasswordResetToken).where(models.PasswordResetToken.token_hash == token_hash, models.PasswordResetToken.used_at.is_(None)))
+    now = datetime.utcnow()
+    if not reset or reset.expires_at < now:
+        raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
+    user = db.get(models.User, reset.user_id)
+    if not user:
+        raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
+    user.password_hash = hash_password(payload.new_password)
+    reset.used_at = now
+    db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id, models.PasswordResetToken.id != reset.id, models.PasswordResetToken.used_at.is_(None)).update({"used_at": now})
+    db.commit()
+    return {"message": "Password updated. You can now sign in."}
+
+@app.post("/auth/change-password")
+def change_password(payload: schemas.ChangePasswordIn, db: Session = Depends(get_db), user: models.User = Depends(current_user)):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(400, "Your current password is incorrect.")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(400, "Choose a new password different from your current one.")
+    user.password_hash = hash_password(payload.new_password)
+    db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id, models.PasswordResetToken.used_at.is_(None)).update({"used_at": datetime.utcnow()})
+    db.commit()
+    return {"message": "Password changed successfully."}
+
 @app.get("/goals",response_model=list[schemas.GoalOut])
 def list_goals(db:Session=Depends(get_db),user:models.User=Depends(current_user)):
     return db.scalars(select(models.Goal).where(models.Goal.user_id==user.id).order_by(models.Goal.created_at.desc())).all()
