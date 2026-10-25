@@ -105,3 +105,15 @@
 .top-three-card .top-three-row.is-filled{border-color:color-mix(in srgb,var(--theme-accent,#829b73) 25%,#ececf1);background:color-mix(in srgb,var(--theme-accent-soft,#e9efe4) 15%,white)}
 .top-three-card .top-three-row-1.is-filled{box-shadow:inset 3px 0 0 var(--theme-accent,#829b73)}
 @media(max-width:600px){.top-three-progress{margin-top:14px;padding:10px 12px}}
+
+/* Excel export controls and Google account photos */
+.avatar,.profile-large-avatar{overflow:hidden}
+.avatar img,.profile-large-avatar img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.export-section .section-head h3{display:flex;align-items:center;gap:8px}
+.export-quick-actions{display:flex;flex-wrap:wrap;gap:9px;margin:15px 0}
+.export-date-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) auto;gap:12px;align-items:end}
+.export-date-fields label{display:flex;flex-direction:column;gap:7px;font-size:10px;font-weight:700;color:#65677f;min-width:0}
+.export-date-fields input{width:100%;min-width:0;border:1px solid #e2e3ed;border-radius:8px;padding:11px 10px;font-size:11px;color:#33354d;background:#fff}
+.export-date-fields .primary-button{white-space:nowrap}
+.export-section .success-banner,.export-section .error-banner{margin:13px 0 0}
+@media(max-width:600px){.export-date-fields{grid-template-columns:1fr}.export-date-fields .primary-button{width:100%}}
