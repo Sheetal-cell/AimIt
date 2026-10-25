@@ -2,6 +2,10 @@ import os
 import hashlib
 import secrets
 import json
+from io import BytesIO
+from openpyxl import Workbook
+from fastapi import Query
+from fastapi.responses import StreamingResponse
 from html import escape
 from urllib.parse import quote
 from urllib.request import Request as URLRequest, urlopen
@@ -234,6 +238,31 @@ def complete_goal(goal_id:int,db:Session=Depends(get_db),user:models.User=Depend
     goal=db.scalar(select(models.Goal).where(models.Goal.id==goal_id,models.Goal.user_id==user.id))
     if not goal: raise HTTPException(404,"Goal not found")
     goal.status="completed" if goal.status!="completed" else "active"; db.commit(); db.refresh(goal); return goal
+@app.get("/reports/tasks.xlsx")
+def export_tasks_excel(start_date: date = Query(...), end_date: date = Query(...), db: Session = Depends(get_db), user: models.User = Depends(current_user)):
+    if end_date < start_date:
+        raise HTTPException(400, "End date must be on or after start date.")
+    if (end_date - start_date).days > 366:
+        raise HTTPException(400, "Please export a date range of 366 days or less.")
+    items = db.scalars(select(models.Task).where(models.Task.user_id == user.id, models.Task.due_date >= start_date, models.Task.due_date <= end_date).order_by(models.Task.due_date, models.Task.id)).all()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Task Completion"
+    sheet.append(["Task", "Due date", "Status", "Completed at", "Priority", "Estimated minutes", "Notes"])
+    for item in items:
+        sheet.append([item.title, item.due_date.isoformat(), "Completed" if item.completed else "Pending", item.completed_at.isoformat(sep=" ", timespec="minutes") if item.completed_at else "", item.priority.title(), item.estimated_minutes, item.notes or ""])
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column, width in {"A":36,"B":14,"C":16,"D":22,"E":14,"F":20,"G":48}.items():
+        sheet.column_dimensions[column].width = width
+    for cell in sheet[1]:
+        cell.font = __import__("openpyxl").styles.Font(bold=True)
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    filename = f"aimit_tasks_{start_date.isoformat()}_to_{end_date.isoformat()}.xlsx"
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
 @app.get("/tasks",response_model=list[schemas.TaskOut])
 def list_tasks(day:date|None=None,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
     q=select(models.Task).where(models.Task.user_id==user.id).order_by(models.Task.due_date,models.Task.id)
