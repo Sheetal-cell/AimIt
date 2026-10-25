@@ -23,7 +23,7 @@ async function request<T>(path:string, options?:RequestInit):Promise<T> {
 }
 
 export default function App() {
-  const [token,setToken] = useState(() => sessionStorage.getItem('momentum_token'))
+  const [token,setToken] = useState(() => new URLSearchParams(window.location.search).has('reset_token') ? null : sessionStorage.getItem('momentum_token'))
   const [authMode,setAuthMode] = useState<'register'|'login'|'forgot'|'reset'>(() => new URLSearchParams(window.location.search).has('reset_token') ? 'reset' : 'register')
   const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset_token') || '')
   const [resetPassword,setResetPassword] = useState('')
