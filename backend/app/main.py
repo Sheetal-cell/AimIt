@@ -98,7 +98,14 @@ def me(user:models.User=Depends(current_user)): return user
 
 @app.delete("/auth/account", status_code=204)
 def delete_account(db: Session = Depends(get_db), user: models.User = Depends(current_user)):
-    # Child records use database-level ON DELETE CASCADE, so deleting the user removes their account data too.
+    # Explicitly remove child rows first as well as using FK cascades. This also
+    # cleans up accounts created before database constraints were updated.
+    db.query(models.CompletionEvent).filter(models.CompletionEvent.user_id == user.id).delete(synchronize_session=False)
+    db.query(models.Task).filter(models.Task.user_id == user.id).delete(synchronize_session=False)
+    db.query(models.Milestone).filter(models.Milestone.user_id == user.id).delete(synchronize_session=False)
+    db.query(models.Reward).filter(models.Reward.user_id == user.id).delete(synchronize_session=False)
+    db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id).delete(synchronize_session=False)
+    db.query(models.Goal).filter(models.Goal.user_id == user.id).delete(synchronize_session=False)
     db.delete(user)
     db.commit()
     return Response(status_code=204)
