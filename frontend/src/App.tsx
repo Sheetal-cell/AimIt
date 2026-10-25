@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, CalendarCheck, CalendarDays, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut } from 'lucide-react'
+import { Activity, CalendarCheck, CalendarDays, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut, Timer, Play, Pause, RotateCcw, Gift, Trophy } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL;
 type Goal = { id:number; title:string; description?:string|null; category:string; target_date?:string|null; status:string }
 type Task = { id:number; title:string; notes?:string|null; due_date:string; priority:string; estimated_minutes:number; completed:boolean; goal_id?:number|null }
 type Milestone = { id:number; title:string; description?:string|null; due_date?:string|null; status:string; goal_id:number }
 type User = { id:number; email:string; display_name:string }
+type Reward = { id:number; period_type:'daily'|'weekly'; period_start:string; reward_text:string }
 type Dashboard = { date:string; today_total:number; today_completed:number; today_completion_percent:number; active_goals:number; milestones_total:number; milestones_completed:number; overdue_tasks:number }
 
 function todayString() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function weekStartString() { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - ((d.getDay()+6)%7)); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function shiftDateString(value:string,days:number) { const d = new Date(value+'T12:00:00'); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 async function request<T>(path:string, options?:RequestInit):Promise<T> {
   const savedToken = sessionStorage.getItem('momentum_token')
   const authHeaders: Record<string,string> = { 'Content-Type':'application/json', ...(options?.headers as Record<string,string> || {}) }
@@ -31,6 +34,11 @@ export default function App() {
   const [goals,setGoals] = useState<Goal[]>([])
   const [tasks,setTasks] = useState<Task[]>([])
   const [milestones,setMilestones] = useState<Milestone[]>([])
+  const [rewards,setRewards] = useState<Reward[]>([])
+  const [dailyRewardText,setDailyRewardText] = useState('')
+  const [weeklyRewardText,setWeeklyRewardText] = useState('')
+  const [stopwatchSeconds,setStopwatchSeconds] = useState(0)
+  const [stopwatchRunning,setStopwatchRunning] = useState(false)
   const [stats,setStats] = useState<Dashboard|null>(null)
   const [user,setUser] = useState<User|null>(null)
   const [editingTask,setEditingTask] = useState<Task|null>(null)
@@ -60,20 +68,32 @@ export default function App() {
     } catch (e:any) { setError(e.message || 'Could not authenticate') } finally { setAuthBusy(false) }
   }
   function signOut() { sessionStorage.removeItem('momentum_token'); setToken(null); setUserPlaceholder() }
-  function setUserPlaceholder() { setGoals([]); setTasks([]); setMilestones([]); setStats(null); setUser(null); setEditingTask(null) }
+  function setUserPlaceholder() { setGoals([]); setTasks([]); setMilestones([]); setRewards([]); setDailyRewardText(''); setWeeklyRewardText(''); setStopwatchRunning(false); setStopwatchSeconds(0); setStats(null); setUser(null); setEditingTask(null) }
 
   async function refresh() {
     try {
-      const [g,t,m,s,u] = await Promise.all([request<Goal[]>('/goals'),request<Task[]>('/tasks'),request<Milestone[]>('/milestones'),request<Dashboard>('/dashboard'),request<User>('/auth/me')])
-      setGoals(g); setTasks(t); setMilestones(m); setStats(s); setUser(u); setError('')
+      const [g,t,m,s,u,r] = await Promise.all([request<Goal[]>('/goals'),request<Task[]>('/tasks'),request<Milestone[]>('/milestones'),request<Dashboard>('/dashboard'),request<User>('/auth/me'),request<Reward[]>('/rewards')])
+      setGoals(g); setTasks(t); setMilestones(m); setStats(s); setUser(u); setRewards(r)
+      const daily = r.find(item => item.period_type === 'daily' && item.period_start === todayString())
+      const weekly = r.find(item => item.period_type === 'weekly' && item.period_start === weekStartString())
+      setDailyRewardText(daily?.reward_text || ''); setWeeklyRewardText(weekly?.reward_text || ''); setError('')
     } catch { setError('Could not connect to the API. Start PostgreSQL and the FastAPI backend, then refresh this page.') }
   }
   useEffect(() => { if (token) void refresh() }, [token])
+  useEffect(() => { if (!stopwatchRunning) return; const timer = window.setInterval(() => setStopwatchSeconds(seconds => seconds + 1), 1000); return () => window.clearInterval(timer) }, [stopwatchRunning])
   const todaysTasks = useMemo(() => tasks.filter(t => t.due_date === todayString()), [tasks])
   const historyTasks = useMemo(() => tasks.filter(t => t.due_date === historyDate).sort((a,b) => a.id-b.id), [tasks, historyDate])
   const historyCompleted = historyTasks.filter(t => t.completed).length
   const historyPercent = historyTasks.length ? Math.round(historyCompleted / historyTasks.length * 100) : 0
   const completedToday = todaysTasks.filter(t => t.completed).length
+  const weekStart = weekStartString()
+  const weekEnd = shiftDateString(weekStart, 6)
+  const weeklyTasks = tasks.filter(t => t.due_date >= weekStart && t.due_date <= weekEnd)
+  const weeklyCompleted = weeklyTasks.filter(t => t.completed).length
+  const dailyReward = rewards.find(item => item.period_type === 'daily' && item.period_start === todayString())
+  const weeklyReward = rewards.find(item => item.period_type === 'weekly' && item.period_start === weekStart)
+  const dailyRewardEarned = todaysTasks.length > 0 && completedToday === todaysTasks.length
+  const weeklyRewardEarned = weeklyTasks.length > 0 && weeklyCompleted === weeklyTasks.length
   const completion = todaysTasks.length ? Math.round(completedToday / todaysTasks.length * 100) : 0
   const upcoming = [...tasks].filter(t => !t.completed).sort((a,b)=>a.due_date.localeCompare(b.due_date)).slice(0,5)
   const goalName = (id:number) => goals.find(g=>g.id===id)?.title || 'Independent target'
@@ -100,6 +120,17 @@ export default function App() {
   async function deleteTask(id:number) { if(!window.confirm('Delete this target? This cannot be undone.')) return; try { await request(`/tasks/${id}`,{method:'DELETE'}); await refresh() } catch { setError('Could not delete task.') } }
   async function deleteGoal(id:number,title:string) { if(!window.confirm(`Delete the goal “${title}”? Its milestones will also be deleted, and linked targets will become independent.`)) return; try { await request(`/goals/${id}`,{method:'DELETE'}); await refresh() } catch { setError('Could not delete goal.') } }
   async function updateMilestone(m:Milestone) { const status = m.status==='completed'?'in_progress':'completed'; try { await request(`/milestones/${m.id}`,{method:'PATCH',body:JSON.stringify({status})}); await refresh() } catch { setError('Could not update milestone.') } }
+  async function saveReward(periodType:'daily'|'weekly', rewardText:string) {
+    if (!rewardText.trim()) { setError('Enter a reward first, then save it.'); return }
+    const periodStart = periodType === 'daily' ? todayString() : weekStartString()
+    try {
+      const saved = await request<Reward>(`/rewards/${periodType}/${periodStart}`, {method:'PUT', body:JSON.stringify({reward_text:rewardText.trim()})})
+      setRewards(previous => [...previous.filter(item => !(item.period_type === saved.period_type && item.period_start === saved.period_start)), saved])
+      if (periodType === 'daily') setDailyRewardText(saved.reward_text); else setWeeklyRewardText(saved.reward_text)
+      setError('')
+    } catch { setError('Could not save your reward. Please try again.') }
+  }
+  function formatStopwatch(total:number) { const hours = Math.floor(total/3600); const minutes = Math.floor((total%3600)/60); const seconds = total%60; return [hours,minutes,seconds].map(value => String(value).padStart(2,'0')).join(':') }
 
   if (!token) return <div className="auth-page"><section className="auth-visual"><div className="brand"><div className="brand-mark"><Zap size={20}/></div><div><strong>AimIt</strong><small>PROGRESS, ON PURPOSE</small></div></div><div className="auth-pitch"><span className="eyebrow lime">YOUR PROGRESS, YOUR RULES</span><h1>Make your plans<br/><em>mean something.</em></h1><p>Daily action, meaningful milestones, and progress you can actually see.</p></div><div className="auth-footer">Small steps. Real momentum.</div></section><section className="auth-form-wrap"><form className="auth-form" onSubmit={authenticate}><span className="eyebrow">WELCOME TO MOMENTUM</span><h2>{authMode==='register'?'Create your workspace':'Welcome back'}</h2><p>Your goals and targets stay private to your account.</p>{authMode==='register'&&<label>Your name<input value={authName} onChange={e=>setAuthName(e.target.value)} required maxLength={80} placeholder="Your name"/></label>}<label>Email address<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} required placeholder="you@example.com"/></label><label>Password<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} required minLength={authMode==='register'?10:1} maxLength={128} placeholder={authMode==='register'?'At least 10 characters':'Your password'}/></label>{error&&<div className="error-banner">{error}</div>}<button className="primary-button full" disabled={authBusy}>{authBusy?'Please wait…':authMode==='register'?'Create account':'Sign in'}</button><div className="auth-switch">{authMode==='register'?'Already have an account?':'New to AimIt?'} <button type="button" onClick={()=>{setAuthMode(authMode==='register'?'login':'register');setError('')}}>{authMode==='register'?'Sign in':'Create an account'}</button></div></form></section></div>
 
@@ -116,6 +147,13 @@ export default function App() {
       <div className="content">
         {(tab==='Overview'||tab==='Progress')&&<><section className="welcome-panel"><div className="welcome-copy"><span className="pill"><Zap size={13}/> YOUR NEXT LEVEL STARTS HERE</span><h2>Make your plans<br/> <em>mean something.</em></h2><p>Progress isn't about doing everything. It's about doing the right things, consistently.</p><button className="light-button" onClick={()=>setShowGoal(true)}>Define a goal <span>↗</span></button></div><div className="orbit-art"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="orbit-center"><Target size={34}/></div><div className="orbit-dot dot-one"/><div className="orbit-dot dot-two"/><div className="orbit-dot dot-three"/></div><div className="panel-watermark">M.</div></section>
         <section className="stats-grid"><Stat icon={<CalendarCheck/>} label="Today's targets" value={String(todaysTasks.length)} note={`${completedToday} completed`} tone="purple"/><Stat icon={<TrendingUp/>} label="Today's progress" value={`${completion}%`} note={completion===100&&todaysTasks.length?'All targets complete':`${todaysTasks.length-completedToday} left to go`} tone="green"/><Stat icon={<Target/>} label="Active goals" value={String(goals.filter(g=>g.status==='active').length)} note="Keep the bigger picture" tone="orange"/><Stat icon={<Flag/>} label="Milestones reached" value={`${milestones.filter(m=>m.status==='completed').length}/${milestones.length}`} note="Every step moves you forward" tone="blue"/></section>
+        <section className="dashboard-tools-grid">
+          <article className="section-card stopwatch-card"><div className="section-head"><div><div className="eyebrow">FOCUS SESSION</div><h3><Timer size={18}/> Stopwatch</h3></div><span className="soft-count">Session timer</span></div><div className="stopwatch-display" aria-live="polite">{formatStopwatch(stopwatchSeconds)}</div><p className="tool-description">Time a study sprint, coding session, or focused break.</p><div className="stopwatch-actions"><button className="primary-button" onClick={()=>setStopwatchRunning(value=>!value)}>{stopwatchRunning?<Pause size={15}/>:<Play size={15}/>} {stopwatchRunning?'Pause':'Start'}</button><button className="cancel-button" onClick={()=>{setStopwatchRunning(false);setStopwatchSeconds(0)}}><RotateCcw size={14}/> Reset</button></div></article>
+          <article className="section-card rewards-card"><div className="section-head"><div><div className="eyebrow">MAKE THE EFFORT FEEL WORTH IT</div><h3><Gift size={18}/> Personal rewards</h3></div></div><p className="tool-description">Choose something kind for yourself when you finish your targets. Your rewards are saved to your account.</p>
+            <div className="reward-block"><div className="reward-block-head"><strong><CalendarCheck size={15}/> Daily reward</strong><span className={dailyRewardEarned?'reward-earned':'reward-progress'}>{dailyRewardEarned?'Earned today':`${completedToday}/${todaysTasks.length} done`}</span></div><form className="reward-form" onSubmit={e=>{e.preventDefault();void saveReward('daily',dailyRewardText)}}><input value={dailyRewardText} onChange={e=>setDailyRewardText(e.target.value)} maxLength={240} placeholder="e.g. Watch one episode guilt-free" aria-label="Your daily reward"/><button className="primary-button" type="submit">Save</button></form>{dailyRewardEarned&&dailyReward&&<p className="reward-unlocked"><Trophy size={15}/> You earned it: {dailyReward.reward_text}</p>}{!todaysTasks.length&&<p className="reward-hint">Add at least one target for today to unlock this reward.</p>}</div>
+            <div className="reward-block"><div className="reward-block-head"><strong><CalendarDays size={15}/> Weekly reward</strong><span className={weeklyRewardEarned?'reward-earned':'reward-progress'}>{weeklyRewardEarned?'Earned this week':`${weeklyCompleted}/${weeklyTasks.length} done`}</span></div><form className="reward-form" onSubmit={e=>{e.preventDefault();void saveReward('weekly',weeklyRewardText)}}><input value={weeklyRewardText} onChange={e=>setWeeklyRewardText(e.target.value)} maxLength={240} placeholder="e.g. Take a relaxed half-day off" aria-label="Your weekly reward"/><button className="primary-button" type="submit">Save</button></form>{weeklyRewardEarned&&weeklyReward&&<p className="reward-unlocked"><Trophy size={15}/> You earned it: {weeklyReward.reward_text}</p>}{!weeklyTasks.length&&<p className="reward-hint">Schedule targets this week to unlock the weekly reward.</p>}</div>
+          </article>
+        </section>
         </>}
         {(tab==='Overview'||tab==='Daily targets')&&<section className="section-card"><div className="section-head"><div><div className="eyebrow">ONE DAY AT A TIME</div><h3>Today's targets <span className="soft-count">{todaysTasks.length}</span></h3></div><button className="text-button" onClick={()=>openNewTask()}><Plus size={16}/> New target</button></div><div className="progress-line"><div><span>Daily completion</span><strong>{completion}%</strong></div><div className="track"><span style={{width:`${completion}%`}}/></div></div>{todaysTasks.length===0?<Empty title="A fresh page." text="Add your first target for today and make it count." action={()=>setShowTask(true)}/>:<div className="task-list">{todaysTasks.map(t=><TaskRow key={t.id} task={t} goalName={t.goal_id?goalName(t.goal_id):'Independent target'} onToggle={()=>void toggleTask(t.id)} onDelete={()=>void deleteTask(t.id)} onEdit={()=>openEditTask(t)}/>)}</div>}</section>}
         {(tab==='Overview'||tab==='Goals')&&<section className="section-card"><div className="section-head"><div><div className="eyebrow">THINK BEYOND TODAY</div><h3>Your goals</h3></div><button className="text-button" onClick={()=>setShowGoal(true)}><Plus size={16}/> New goal</button></div>{goals.length===0?<Empty title="Give your effort a direction." text="Create a goal, then connect daily targets and milestones to it." action={()=>setShowGoal(true)}/>:<div className="goal-grid">{goals.map(g=>{const related=tasks.filter(t=>t.goal_id===g.id);const done=related.filter(t=>t.completed).length;const pct=related.length?Math.round(done/related.length*100):0;return <article className="goal-card" key={g.id}><div className="goal-card-top"><span className="category-tag">{g.category}</span><span className={`status-dot ${g.status}`}/></div><div className="goal-title-row"><h4>{g.title}</h4><button className="icon-button delete-button" title={`Delete goal ${g.title}`} aria-label={`Delete goal ${g.title}`} onClick={()=>void deleteGoal(g.id,g.title)}><Trash2 size={15}/></button></div><p>{g.target_date?`Target date · ${g.target_date}`:'No target date set'}</p><div className="goal-progress-label"><span>{done} of {related.length} linked targets done</span><strong>{pct}%</strong></div><div className="track"><span style={{width:`${pct}%`}}/></div><button className="subtle-button" onClick={()=>openNewTask(String(g.id))}><Plus size={14}/> Add related target</button></article>})}</div>}</section>}
