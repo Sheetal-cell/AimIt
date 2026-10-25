@@ -93,3 +93,15 @@
 .danger-button:hover:not(:disabled){background:#ffe6e7;border-color:#d98c91}
 .danger-button:disabled{opacity:.6;cursor:wait}
 @media(max-width:600px){.top-three-heading{gap:10px}.top-three-heading h3{font-size:17px}.top-three-count{min-width:72px;padding:9px}.top-three-card .top-three-row{gap:9px;padding:10px}.top-three-card .top-three-rank{flex-basis:33px;height:34px}.top-three-footer{align-items:stretch;flex-direction:column}.top-three-footer .primary-button{width:100%}.delete-account-card .section-head{align-items:flex-start}}
+
+/* Top 3 focus meter */
+.top-three-progress{margin-top:18px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--theme-accent-soft,#e9efe4) 42%,white);border:1px solid color-mix(in srgb,var(--theme-accent,#829b73) 15%,white)}
+.top-three-progress-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;color:#7e8194;font-size:10px}
+.top-three-progress-label span{font-weight:700;letter-spacing:.7px;text-transform:uppercase}
+.top-three-progress-label strong{color:var(--theme-ink,#64805c);font-size:11px}
+.top-three-progress-track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.top-three-progress-track span{height:5px;border-radius:99px;background:#e6e7e9;transition:background .2s,transform .2s}
+.top-three-progress-track span.complete{background:var(--theme-accent,#829b73);box-shadow:0 1px 4px color-mix(in srgb,var(--theme-accent,#829b73) 25%,transparent)}
+.top-three-card .top-three-row.is-filled{border-color:color-mix(in srgb,var(--theme-accent,#829b73) 25%,#ececf1);background:color-mix(in srgb,var(--theme-accent-soft,#e9efe4) 15%,white)}
+.top-three-card .top-three-row-1.is-filled{box-shadow:inset 3px 0 0 var(--theme-accent,#829b73)}
+@media(max-width:600px){.top-three-progress{margin-top:14px;padding:10px 12px}}
