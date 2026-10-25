@@ -32,3 +32,14 @@ class MilestoneOut(MilestoneCreate):
     id:int; status:str; created_at:datetime
     model_config=ConfigDict(from_attributes=True)
 class MilestoneUpdate(BaseModel): status:str
+
+
+class RewardIn(BaseModel):
+    reward_text: str = Field(min_length=1, max_length=240)
+class RewardOut(BaseModel):
+    id: int
+    period_type: str
+    period_start: date
+    reward_text: str
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
