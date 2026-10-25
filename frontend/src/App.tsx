@@ -42,6 +42,7 @@ export default function App() {
   const [profileConfirmPassword,setProfileConfirmPassword] = useState('')
   const [profileNotice,setProfileNotice] = useState('')
   const [profileBusy,setProfileBusy] = useState(false)
+  const [accountDeleting,setAccountDeleting] = useState(false)
   const [theme,setTheme] = useState(() => localStorage.getItem('aimit_theme') || 'linen')
   const [authEmail,setAuthEmail] = useState('')
   const [authPassword,setAuthPassword] = useState('')
@@ -91,6 +92,23 @@ export default function App() {
     } catch (e:any) { setError(e.message || 'Could not authenticate') } finally { setAuthBusy(false) }
   }
   function signOut() { sessionStorage.removeItem('momentum_token'); setToken(null); setUserPlaceholder() }
+  async function deleteAccount() {
+    if (!user) return
+    if (!window.confirm('Delete your AimIt account and all saved database data? This action cannot be undone.')) return
+    const confirmation = window.prompt('Type DELETE to confirm account removal')
+    if (confirmation !== 'DELETE') { if (confirmation !== null) window.alert('Confirmation did not match. No changes were made.'); return }
+    setAccountDeleting(true)
+    try {
+      await request<void>('/auth/account', {method:'DELETE'})
+      const prefix = 'aimit_top3_' + user.id + '_'
+      for (let i = localStorage.length - 1; i >= 0; i--) { const key = localStorage.key(i); if (key && key.startsWith(prefix)) localStorage.removeItem(key) }
+      sessionStorage.removeItem('momentum_token')
+      setToken(null)
+      setUserPlaceholder()
+      setTab('Overview')
+    } catch (e:any) { setProfileNotice(e.message || 'Could not delete your account. Please try again.') }
+    finally { setAccountDeleting(false) }
+  }
   function setUserPlaceholder() { setGoals([]); setTasks([]); setMilestones([]); setRewards([]); setDailyRewardText(''); setWeeklyRewardText(''); setStopwatchRunning(false); setStopwatchSeconds(0); setStats(null); setUser(null); setEditingTask(null) }
 
   async function refresh() {
