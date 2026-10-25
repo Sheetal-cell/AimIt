@@ -60,13 +60,13 @@ async def google_login(request: Request):
     set_cookie = response.headers.get("set-cookie", "")
     set_cookie_value = ""
     for cookie_part in set_cookie.split(";"):
-        if cookie_part.strip().startswith("session="):
+        if cookie_part.strip().startswith("aimit_oauth_session="):
             set_cookie_value = cookie_part.strip().split("=", 1)[1]
             break
     logging.warning(
         "Google OAuth login initiated: request_session_cookie_present=%s request_session_fingerprint=%s response_session_fingerprint=%s pending_google_states_before=%d pending_google_states_after=%d",
-        bool(request.cookies.get("session")),
-        _session_fingerprint(request.cookies.get("session")),
+        bool(request.cookies.get("aimit_oauth_session")),
+        _session_fingerprint(request.cookies.get("aimit_oauth_session")),
         _session_fingerprint(set_cookie_value),
         pending_before, pending_after
     )
@@ -81,8 +81,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     state_keys = _oauth_state_keys(request)
     logging.warning(
         "Google OAuth callback received: session_cookie_present=%s session_fingerprint=%s callback_state_present=%s pending_google_states=%d callback_state_matches_session=%s",
-        bool(request.cookies.get("session")),
-        _session_fingerprint(request.cookies.get("session")),
+        bool(request.cookies.get("aimit_oauth_session")),
+        _session_fingerprint(request.cookies.get("aimit_oauth_session")),
         bool(callback_state), len(state_keys),
         bool(expected_state_key and expected_state_key in request.session)
     )
