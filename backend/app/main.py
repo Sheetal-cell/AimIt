@@ -10,7 +10,7 @@ from .security import hash_password, verify_password, create_access_token, curre
 if os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")=="unsafe-development-secret-change-me": print("WARNING: Set JWT_SECRET in backend/.env before using real accounts.")
 Base.metadata.create_all(bind=engine)
 app=FastAPI(title="Momentum API",version="0.2.0")
-app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173","http://127.0.0.1:5173","https://aim-it-six.vercel.app/"],allow_credentials=True,allow_methods=["GET","POST","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
+app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173","http://127.0.0.1:5173","https://aim-it-six.vercel.app"],allow_credentials=True,allow_methods=["GET","POST","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
 @app.get("/health")
 def health(): return {"status":"ok"}
 @app.post("/auth/register",response_model=schemas.TokenOut,status_code=201)
