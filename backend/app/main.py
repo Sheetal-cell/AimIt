@@ -37,22 +37,22 @@ def me(user:models.User=Depends(current_user)): return user
 
 @app.post("/auth/forgot-password")
 def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get_db)):
-    email = str(payload.email).lower()
-    user = db.scalar(select(models.User).where(models.User.email == email))
-    if not user:
-        return {"message": "If an account exists for that email, reset instructions will be sent."}
     smtp_host = os.getenv("SMTP_HOST")
     smtp_user = os.getenv("SMTP_USER")
     smtp_password = os.getenv("SMTP_PASSWORD")
     from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user or "")
     if not all([smtp_host, smtp_user, smtp_password, from_email]):
         raise HTTPException(503, "Password reset email is not configured yet. Please contact the site administrator.")
+    email = str(payload.email).lower()
+    user = db.scalar(select(models.User).where(models.User.email == email))
+    if not user:
+        return {"message": "If an account exists for that email, reset instructions will be sent."}
     now = datetime.utcnow()
     db.query(models.PasswordResetToken).filter(models.PasswordResetToken.user_id == user.id, models.PasswordResetToken.used_at.is_(None)).update({"used_at": now})
     raw_token = secrets.token_urlsafe(40)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     db.add(models.PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=now + timedelta(minutes=30)))
-    db.commit()
+    db.flush()
     frontend_url = os.getenv("FRONTEND_URL", "https://aim-it-six.vercel.app").rstrip("/")
     reset_url = f"{frontend_url}/?reset_token={quote(raw_token)}"
     message = EmailMessage()
@@ -65,6 +65,7 @@ def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.send_message(message)
+        db.commit()
     except Exception:
         db.rollback()
         raise HTTPException(502, "Could not send the reset email. Please try again later.")
