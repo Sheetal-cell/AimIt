@@ -1,11 +1,11 @@
 import os
 import hashlib
 import secrets
-import smtplib
-import ssl
-from email.message import EmailMessage
+import json
 from html import escape
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,13 +39,9 @@ def me(user:models.User=Depends(current_user)): return user
 
 @app.post("/auth/forgot-password")
 def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get_db)):
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_username = os.getenv("SMTP_USERNAME")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    from_email = os.getenv("SMTP_FROM_EMAIL") or smtp_username
-
-    if not smtp_username or not smtp_password or not from_email:
+    mail_api_url = os.getenv("MAIL_API_URL")
+    mail_api_secret = os.getenv("MAIL_API_SECRET")
+    if not mail_api_url or not mail_api_secret:
         raise HTTPException(503, "Password reset email is not configured yet. Please contact the site administrator.")
 
     email = str(payload.email).lower()
@@ -72,42 +68,50 @@ def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get
     reset_url = f"{frontend_url}/?reset_token={quote(raw_token)}"
     display_name = escape(user.display_name or "there")
     reset_url_html = escape(reset_url, quote=True)
-
-    message = EmailMessage()
-    message["Subject"] = "Reset your AimIt password"
-    message["From"] = from_email
-    message["To"] = email
-    message.set_content(
-        f"Hello {user.display_name or 'there'},\n\n"
-        "We received a request to reset your AimIt password. "
-        "Use the one-time link below within 30 minutes:\n\n"
-        f"{reset_url}\n\n"
-        "If you did not request this, you can ignore this email."
+    email_payload = {
+        "secret": mail_api_secret,
+        "to": email,
+        "subject": "Reset your AimIt password",
+        "text": (
+            f"Hello {user.display_name or 'there'},\n\n"
+            "We received a request to reset your AimIt password. "
+            "Use the one-time link below within 30 minutes:\n\n"
+            f"{reset_url}\n\n"
+            "If you did not request this, you can ignore this email."
+        ),
+        "html": (
+            "<div style=\"font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#24302b;line-height:1.6\">"
+            "<h2 style=\"color:#466b58\">Reset your AimIt password</h2>"
+            f"<p>Hello {display_name},</p>"
+            "<p>We received a request to reset your password. This link expires in 30 minutes.</p>"
+            f"<p><a href=\"{reset_url_html}\" style=\"display:inline-block;padding:12px 20px;background:#466b58;color:#fff;text-decoration:none;border-radius:8px\">Reset password</a></p>"
+            "<p>If the button does not work, copy this link into your browser:</p>"
+            f"<p><a href=\"{reset_url_html}\">{reset_url_html}</a></p>"
+            "<p>If you did not request a password reset, you can safely ignore this email.</p>"
+            "<p>— AimIt</p></div>"
+        ),
+    }
+    request = Request(
+        mail_api_url,
+        data=json.dumps(email_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "AimIt/1.0"},
+        method="POST",
     )
-    message.add_alternative(
-        "<div style=\"font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#24302b;line-height:1.6\">"
-        "<h2 style=\"color:#466b58\">Reset your AimIt password</h2>"
-        f"<p>Hello {display_name},</p>"
-        "<p>We received a request to reset your password. This link expires in 30 minutes.</p>"
-        f"<p><a href=\"{reset_url_html}\" style=\"display:inline-block;padding:12px 20px;background:#466b58;color:#fff;text-decoration:none;border-radius:8px\">Reset password</a></p>"
-        "<p>If the button does not work, copy this link into your browser:</p>"
-        f"<p><a href=\"{reset_url_html}\">{reset_url_html}</a></p>"
-        "<p>If you did not request a password reset, you can safely ignore this email.</p>"
-        "<p>— AimIt</p></div>",
-        subtype="html",
-    )
-
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as smtp:
-            smtp.ehlo()
-            smtp.starttls(context=ssl.create_default_context())
-            smtp.ehlo()
-            smtp.login(smtp_username, smtp_password)
-            smtp.send_message(message)
+        with urlopen(request, timeout=25) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Email relay rejected the request")
+            try:
+                relay_result = json.loads(response_body)
+                if relay_result.get("ok") is False:
+                    raise RuntimeError("Email relay could not send the message")
+            except json.JSONDecodeError:
+                raise RuntimeError("Email relay returned an unexpected response")
         db.commit()
-    except (smtplib.SMTPException, OSError, ValueError):
+    except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError):
         db.rollback()
-        raise HTTPException(502, "Could not send the reset email. Check the SMTP settings and try again.")
+        raise HTTPException(502, "Could not send the reset email. Check the email relay configuration and try again.")
     except Exception:
         db.rollback()
         raise HTTPException(502, "Could not send the reset email. Please try again later.")
