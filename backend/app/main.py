@@ -1,4 +1,5 @@
 import os
+import logging
 import hashlib
 import secrets
 import json
@@ -88,6 +89,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception:
+        logging.exception("Google OAuth callback failed")
         return RedirectResponse(f"{FRONTEND_URL}/?oauth_error=google_signin_failed", status_code=302)
 
 @app.get("/health")
