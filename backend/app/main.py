@@ -55,7 +55,11 @@ async def google_login(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(503, "Google sign-in is not configured yet.")
     pending_before = len(_oauth_state_keys(request))
-    response = await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
+    response = await oauth.google.authorize_redirect(
+            request,
+            GOOGLE_REDIRECT_URI,
+            prompt="select_account",
+        )
     pending_after = len(_oauth_state_keys(request))
     set_cookie = response.headers.get("set-cookie", "")
     set_cookie_value = ""
