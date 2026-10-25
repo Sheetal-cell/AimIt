@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, CalendarCheck, Check, Circle, Flag, LayoutDashboard, ListTodo, Plus, Target, TrendingUp, Trash2, Zap, LogOut } from 'lucide-react'
 
-const API = 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL;
 type Goal = { id:number; title:string; description?:string|null; category:string; target_date?:string|null; status:string }
 type Task = { id:number; title:string; notes?:string|null; due_date:string; priority:string; estimated_minutes:number; completed:boolean; goal_id?:number|null }
 type Milestone = { id:number; title:string; description?:string|null; due_date?:string|null; status:string; goal_id:number }
