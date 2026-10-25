@@ -7,7 +7,10 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from datetime import date, datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, Response
+from fastapi import FastAPI, Depends, HTTPException, Response, Request
+from fastapi.responses import RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
@@ -16,8 +19,64 @@ from . import models, schemas
 from .security import hash_password, verify_password, create_access_token, current_user
 if os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")=="unsafe-development-secret-change-me": print("WARNING: Set JWT_SECRET in backend/.env before using real accounts.")
 Base.metadata.create_all(bind=engine)
-app=FastAPI(title="Momentum API",version="0.2.0")
+app=FastAPI(title="Momentum API",version="0.3.0")
+# Authlib uses a signed session only to protect the OAuth state/CSRF round-trip.
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", os.getenv("JWT_SECRET", "unsafe-development-secret-change-me")), same_site="lax", https_only=os.getenv("APP_ENV", "production") == "production")
+oauth=OAuth()
+GOOGLE_CLIENT_ID=os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET=os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI=os.getenv("GOOGLE_REDIRECT_URI", "https://aimit-t4ce.onrender.com/auth/google/callback")
+FRONTEND_URL=os.getenv("FRONTEND_URL", "https://aim-it-six.vercel.app").rstrip("/")
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name="google",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
+    )
 app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173","http://127.0.0.1:5173","https://aim-it-six.vercel.app"],allow_credentials=True,allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
+@app.get("/auth/google/login")
+async def google_login(request: Request):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(503, "Google sign-in is not configured yet.")
+    return await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
+
+@app.get("/auth/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(503, "Google sign-in is not configured yet.")
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        profile = token.get("userinfo")
+        if not profile:
+            profile = await oauth.google.parse_id_token(request, token)
+        email = str(profile.get("email", "")).strip().lower()
+        if not email or profile.get("email_verified") is not True:
+            raise HTTPException(400, "Google did not provide a verified email address.")
+        display_name = str(profile.get("name") or email.split("@")[0]).strip()[:80] or email.split("@")[0]
+        user = db.scalar(select(models.User).where(models.User.email == email))
+        if not user:
+            # Keep the existing non-null password schema compatible with Google-only accounts.
+            user = models.User(email=email, password_hash=hash_password(secrets.token_urlsafe(48)), display_name=display_name)
+            db.add(user)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                # Handle simultaneous first-time sign-ins for the same Google email.
+                user = db.scalar(select(models.User).where(models.User.email == email))
+                if not user:
+                    raise
+            if user:
+                db.refresh(user)
+        access_token = create_access_token(user.id)
+        return RedirectResponse(f"{FRONTEND_URL}/#oauth_token={quote(access_token)}", status_code=302)
+    except HTTPException:
+        raise
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_URL}/?oauth_error=google_signin_failed", status_code=302)
+
 @app.get("/health")
 def health(): return {"status":"ok"}
 @app.post("/auth/register",response_model=schemas.TokenOut,status_code=201)
