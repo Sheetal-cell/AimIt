@@ -43,3 +43,13 @@ class RewardOut(BaseModel):
     reward_text: str
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=32, max_length=200)
+    new_password: str = Field(min_length=10, max_length=128)
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
