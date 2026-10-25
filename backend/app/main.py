@@ -35,6 +35,11 @@ def list_goals(db:Session=Depends(get_db),user:models.User=Depends(current_user)
 @app.post("/goals",response_model=schemas.GoalOut,status_code=201)
 def create_goal(payload:schemas.GoalCreate,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
     goal=models.Goal(**payload.model_dump(),user_id=user.id); db.add(goal); db.commit(); db.refresh(goal); return goal
+@app.delete("/goals/{goal_id}",status_code=204)
+def delete_goal(goal_id:int,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
+    goal=db.scalar(select(models.Goal).where(models.Goal.id==goal_id,models.Goal.user_id==user.id))
+    if not goal: raise HTTPException(404,"Goal not found")
+    db.delete(goal); db.commit(); return Response(status_code=204)
 @app.patch("/goals/{goal_id}/complete",response_model=schemas.GoalOut)
 def complete_goal(goal_id:int,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
     goal=db.scalar(select(models.Goal).where(models.Goal.id==goal_id,models.Goal.user_id==user.id))
@@ -51,6 +56,15 @@ def create_task(payload:schemas.TaskCreate,db:Session=Depends(get_db),user:model
     if data["priority"] not in {"low","medium","high"}: raise HTTPException(422,"Priority must be low, medium, or high")
     if data["goal_id"] is not None and not db.scalar(select(models.Goal).where(models.Goal.id==data["goal_id"],models.Goal.user_id==user.id)): raise HTTPException(404,"Goal not found")
     task=models.Task(**data,user_id=user.id); db.add(task); db.commit(); db.refresh(task); return task
+@app.patch("/tasks/{task_id}",response_model=schemas.TaskOut)
+def update_task(task_id:int,payload:schemas.TaskUpdate,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
+    task=db.scalar(select(models.Task).where(models.Task.id==task_id,models.Task.user_id==user.id))
+    if not task: raise HTTPException(404,"Task not found")
+    data=payload.model_dump(exclude_unset=True)
+    if "priority" in data and data["priority"] not in {"low","medium","high"}: raise HTTPException(422,"Priority must be low, medium, or high")
+    if "goal_id" in data and data["goal_id"] is not None and not db.scalar(select(models.Goal).where(models.Goal.id==data["goal_id"],models.Goal.user_id==user.id)): raise HTTPException(404,"Goal not found")
+    for key,value in data.items(): setattr(task,key,value)
+    db.commit(); db.refresh(task); return task
 @app.patch("/tasks/{task_id}/toggle",response_model=schemas.TaskOut)
 def toggle_task(task_id:int,db:Session=Depends(get_db),user:models.User=Depends(current_user)):
     task=db.scalar(select(models.Task).where(models.Task.id==task_id,models.Task.user_id==user.id))
