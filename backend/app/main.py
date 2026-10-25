@@ -96,6 +96,13 @@ def login(payload:schemas.LoginIn,db:Session=Depends(get_db)):
 @app.get("/auth/me",response_model=schemas.UserOut)
 def me(user:models.User=Depends(current_user)): return user
 
+@app.delete("/auth/account", status_code=204)
+def delete_account(db: Session = Depends(get_db), user: models.User = Depends(current_user)):
+    # Child records use database-level ON DELETE CASCADE, so deleting the user removes their account data too.
+    db.delete(user)
+    db.commit()
+    return Response(status_code=204)
+
 @app.post("/auth/forgot-password")
 def forgot_password(payload: schemas.ForgotPasswordIn, db: Session = Depends(get_db)):
     mail_api_url = os.getenv("MAIL_API_URL")
